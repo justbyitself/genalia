@@ -1,0 +1,1 @@
+export default ({config}) => `${config.title} by ${config.author}\n`
