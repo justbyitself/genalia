@@ -1,0 +1,6 @@
+{
+  "tasks": {
+    "genika": "deno run -A cli.js",
+    "test": "dx jsr:@justbyitself/veritaclis tests"
+  }
+}
