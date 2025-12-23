@@ -1,22 +1,90 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write
 
 import { ensureDir } from "https://deno.land/std@0.203.0/fs/mod.ts"
-import { dirname, join, resolve, relative } from "https://deno.land/std@0.203.0/path/mod.ts"
 import { walk } from "https://deno.land/std@0.203.0/fs/walk.ts"
-import { parse } from "jsr:@std/yaml@1.0.10"
+import { dirname, join, resolve, relative } from "https://deno.land/std@0.203.0/path/mod.ts"
+import { parse as parseYaml } from "jsr:@std/yaml@1.0.10"
 
-async function loadConfig(inputDir) {
-  const configPathYaml = join(inputDir, "config.genika.yaml")
+export async function loadConfig(inputDir) {
+  const yamlPath = join(inputDir, "config.genika.yaml")
 
   try {
-    const text = await Deno.readTextFile(configPathYaml)
-    return parse(text)
-  } catch (e) {
+    const yamlText = await Deno.readTextFile(yamlPath)
+    const cfg = parseYaml(yamlText)
+    return cfg ?? {}
+  } catch {
     return {}
   }
 }
 
-async function processFile(filePath, inputDir, outDir, config = {}) {
+function describeEntry(path, inputDir) {
+  const name = path.split("/").pop() ?? path
+  const relPath = relative(inputDir, path).replace(/^\.\/+/, "")
+
+  const isHidden = name.startsWith(".")
+  const isNamedGenerator = /\.genika\.[^.]+\.js$/.test(name)
+  const isNormalGenerator = /\.genika\.js$/.test(name)
+  const isGenerator = isNamedGenerator || isNormalGenerator
+  const isConfig = /^config\.genika\.yaml$/.test(name)
+  const isCopyFile = !isGenerator && !isHidden && !isConfig
+
+  let baseName = null
+  let outExt = null
+
+  if (isNamedGenerator) {
+    const m = name.match(/^(.*)\.genika\.([^.]+)\.js$/)
+    if (m) [, baseName, outExt] = m
+  }
+
+  return {
+    path,
+    name,
+    relPath,
+    baseName,
+    outExt,
+    isHidden,
+    isGenerator,
+    isNamedGenerator,
+    isNormalGenerator,
+    isCopyFile,
+  }
+}
+
+async function copyStaticFiles(fileEntries, inputDir, outDir) {
+  for (const entry of fileEntries) {
+    const relPath = relative(inputDir, entry.path)
+    const destPath = join(outDir, relPath)
+    await ensureDir(dirname(destPath))
+    await Deno.copyFile(entry.path, destPath)
+  }
+}
+
+async function writeGeneratedFiles(files, outDir, baseDir = "") {
+  for (const file of files) {
+    const outFilePath = join(outDir, baseDir, file.path)
+    await ensureDir(dirname(outFilePath))
+    await Deno.writeTextFile(outFilePath, file.content)
+  }
+}
+
+function normalizeGeneratedFiles(result, entry, filePath) {
+  if (entry.isNamedGenerator) {
+    if (typeof result !== "string") {
+      throw new Error(
+        `Generator ${filePath} must return a string for named generators`,
+      )
+    }
+    return [{ path: `${entry.baseName}.${entry.outExt}`, content: result }]
+  } else {
+    if (!Array.isArray(result)) {
+      throw new Error(`Generator ${filePath} must return an array of files`)
+    }
+    return result
+  }
+}
+
+async function processEntry(entry, outDir, config = {}) {
+  const filePath = entry.path
   const resolvedPath = resolve(filePath)
   const mod = await import(`file://${resolvedPath}`)
   const generate = mod.default
@@ -25,65 +93,23 @@ async function processFile(filePath, inputDir, outDir, config = {}) {
     throw new Error(`Module ${filePath} does not export a default function`)
   }
 
-  const fileName = filePath.split("/").pop()
+  const result = await generate({ config })
 
-  // Detectar generador especial .genika.xxx.js (xxx distinto de js)
-  const specialGenMatch = fileName.match(/^(.*)\.genika\.([^.]+)\.js$/)
-  let generatedFiles
+  const generatedFiles = normalizeGeneratedFiles(result, entry, filePath)
 
-  if (specialGenMatch && specialGenMatch[2] !== "js") {
-    const [_, baseName, outExt] = specialGenMatch
-    const content = await generate({ config })
-    if (typeof content !== "string") {
-      throw new Error(`Generator ${filePath} must return a string for .genika.${outExt}.js files`)
-    }
-    generatedFiles = [{ path: `${baseName}.${outExt}`, content }]
-  } else if (fileName.endsWith(".genika.js")) {
-    const result = await generate({ config })
-    if (!Array.isArray(result)) {
-      throw new Error(`Generator ${filePath} must return an array of files`)
-    }
-    generatedFiles = result
-  } else {
-    throw new Error(`Unsupported generator filename format: ${fileName}`)
-  }
 
-  const relPath = relative(inputDir, resolvedPath)
-  const baseDir = dirname(relPath)
+  const baseDir = dirname(entry.relPath)
 
-  for (const file of generatedFiles) {
-    const outFilePath = join(outDir, baseDir, file.path)
-    await ensureDir(dirname(outFilePath))
-    await Deno.writeTextFile(outFilePath, file.content)
-  }
+  await writeGeneratedFiles(generatedFiles, outDir, baseDir)
 
   return generatedFiles
 }
 
-async function processDirectory(inputDir, outDir, config) {
-  for await (const entry of walk(inputDir, { includeDirs: false })) {
-    const name = entry.name
-    const relPath = relative(inputDir, entry.path)
-    const destPath = join(outDir, relPath)
-
-    if (name.startsWith(".") || name === "config.genika.yaml") continue
-
-    if (/\.genika(\.[^.]+)?\.js$/.test(name)) {
-      await processFile(entry.path, inputDir, outDir, config)
-      continue
-    }
-
-    // Copiar archivos estáticos
-    await ensureDir(dirname(destPath))
-    await Deno.copyFile(entry.path, destPath)
-  }
-}
-
-async function main() {
-  const args = Deno.args
+function parseArgs(args) {
   if (args.length < 1) {
-    console.error("Usage: deno run --allow-read --allow-write cli.js <module|directory> [--out <outputDir>]")
-    Deno.exit(1)
+    throw new Error(
+      "Usage: deno run --allow-read --allow-write cli.js <module|directory> [--out <outputDir>]",
+    )
   }
 
   const inputPath = args[0]
@@ -94,26 +120,69 @@ async function main() {
     outDir = args[outIndex + 1]
   }
 
-  const resolvedInputPath = resolve(inputPath)
-  const stat = await Deno.stat(resolvedInputPath)
+  return { inputPath, outDir }
+}
 
-  await ensureDir(outDir)
+async function processEntries(entries, inputDir, outDir, config) {
+  const visibleEntries = entries.filter(e => !e.isHidden)
 
-  let config = {}
-  if (stat.isDirectory) {
-    config = await loadConfig(resolvedInputPath)
-    await processDirectory(resolvedInputPath, outDir, config)
-  } else if (stat.isFile) {
-    const inputDir = dirname(resolvedInputPath)
-    config = await loadConfig(inputDir)
-    await processFile(resolvedInputPath, inputDir, outDir, config)
-  } else {
-    console.error("Input path is neither a file nor a directory")
+  const namedGenerators = visibleEntries.filter(e => e.isNamedGenerator)
+  const normalGenerators = visibleEntries.filter(e => e.isNormalGenerator)
+  const copyFiles = visibleEntries.filter(e => e.isCopyFile)
+
+  const errors = []
+
+  const safeProcess = async (entry) => {
+    try {
+      await processEntry(entry, outDir, config)
+    } catch (e) {
+      errors.push(new Error(`Error processing generator ${entry.path}: ${e.message || e}`))
+    }
+  }
+
+  await Promise.all(namedGenerators.map(safeProcess))
+  await Promise.all(normalGenerators.map(safeProcess))
+
+  await copyStaticFiles(copyFiles, inputDir, outDir)
+
+  if (errors.length) {
+    throw new AggregateError(errors, "One or more generators failed")
+  }
+}
+
+async function getEntries(path) {
+  const entries = []
+  for await (const entry of walk(path, { includeDirs: false })) {
+    entries.push(entry.path)
+  }
+  return entries
+}
+
+async function main(inPath, outPath) {
+  const stat = await Deno.stat(inPath)
+
+  if (!stat.isDirectory && !stat.isFile) {
+    throw new Error("Input path is neither a file nor a directory")
+  }
+
+  await ensureDir(outPath)
+
+  const basePath = stat.isFile ? dirname(inPath) : inPath
+  const paths = stat.isFile ? [inPath] : await getEntries(inPath)
+  const entries = paths.map(p => describeEntry(p, basePath))
+
+  const config = await loadConfig(basePath)
+  await processEntries(entries, basePath, outPath, config)
+}
+
+if (import.meta.main) {
+  try {
+    const { inputPath, outDir } = parseArgs(Deno.args)
+    await main(resolve(inputPath), resolve(outDir))
+    Deno.exit(0)
+  } catch (error) {
+    console.error("Error:", error.message)
     Deno.exit(1)
   }
 }
 
-main().catch((err) => {
-  console.error(err)
-  Deno.exit(1)
-})
