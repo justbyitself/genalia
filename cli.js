@@ -2,10 +2,11 @@ import { ensureDir } from "https://deno.land/std@0.203.0/fs/mod.ts"
 import { dirname, join, resolve, relative } from "https://deno.land/std@0.203.0/path/mod.ts"
 import { walk } from "https://deno.land/std@0.203.0/fs/walk.ts"
 
-async function processFile(filePath) {
+async function processFile(filePath, inputDir, outDir) {
   const resolvedPath = resolve(filePath)
   const mod = await import(`file://${resolvedPath}`)
   const generate = mod.default
+  
   if (typeof generate !== "function") {
     throw new Error(`Module ${filePath} does not export a default function`)
   }
@@ -13,6 +14,16 @@ async function processFile(filePath) {
   if (!Array.isArray(result)) {
     throw new Error(`Generator ${filePath} must return an array of files`)
   }
+
+  const relPath = relative(inputDir, resolvedPath)
+  const baseDir = dirname(relPath)
+
+  for (const file of result) {
+    const outFilePath = join(outDir, baseDir, file.path)
+    await ensureDir(dirname(outFilePath))
+    await Deno.writeTextFile(outFilePath, file.content)
+  }
+
   return result
 }
 
@@ -25,13 +36,7 @@ async function processDir(inputDir, outDir) {
     if (name.startsWith(".")) continue
 
     if (name.endsWith(".genika.js")) {
-      const files = await processFile(entry.path)
-      const baseDir = dirname(relPath)
-      for (const file of files) {
-        const outFilePath = join(outDir, baseDir, file.path)
-        await ensureDir(dirname(outFilePath))
-        await Deno.writeTextFile(outFilePath, file.content)
-      }
+      await processFile(entry.path, inputDir, outDir)
       continue
     }
 
@@ -63,12 +68,7 @@ async function main() {
   if (stat.isDirectory) {
     await processDir(resolvedInputPath, outDir)
   } else if (stat.isFile) {
-    const files = await processFile(resolvedInputPath)
-    for (const file of files) {
-      const filePath = join(outDir, file.path)
-      await ensureDir(dirname(filePath))
-      await Deno.writeTextFile(filePath, file.content)
-    }
+    await processFile(resolvedInputPath, dirname(resolvedInputPath), outDir)
   } else {
     console.error("Input path is neither a file nor a directory")
     Deno.exit(1)
