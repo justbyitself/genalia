@@ -1,6 +1,6 @@
 {
   "name": "@justbyitself/genalia",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Genalia CLI tool",
   "exports": "./cli.js",
   "tasks": {
