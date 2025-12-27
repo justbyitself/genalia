@@ -1,4 +1,4 @@
-import { load as loadModule } from "jsr:@justbyitself/modulia"
+import { load as loadModule } from "jsr:@justbyitself/modulia@0.1.0"
 import { join } from "@std/path"
 
 export async function load(inputDir) {
