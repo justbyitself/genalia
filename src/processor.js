@@ -1,3 +1,4 @@
+import { importModule } from "jsr:@brad-jones/jsr-dynamic-imports@^0.1.2"
 import { resolve } from "@std/path"
 
 import * as fs from "./fs.js"
@@ -17,9 +18,7 @@ function normalize(generatorOutput, entry) {
 }
 
 async function processEntry(entry, outPath, config = {}) {
-  const resolvedPath = resolve(entry.path)
-  const mod = await import(`file://${resolvedPath}`)
-  const generate = mod.default
+  const generate = (await importModule(resolve(entry.path))).default
 
   if (typeof generate !== "function") {
     throw new Error(`Module ${entry.path} does not export a default function`)
