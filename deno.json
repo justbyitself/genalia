@@ -5,7 +5,7 @@
   "exports": "./cli.js",
   "tasks": {
     "genalia": "deno run -A cli.js",
-    "test": "dx jsr:@justbyitself/genalia examples",
+    "test": "dx jsr:@justbyitself/veritaclis examples",
     "compile:linux": "deno compile -A --output=bin/genalia-x86_64-linux cli.js",
     "compile:mac": "deno compile -A --output=bin/genalia-x86_64-macos cli.js",
     "compile:windows": "deno compile -A --output=bin/genalia-x86_64-windows.exe --target x86_64-pc-windows-msvc cli.js",
