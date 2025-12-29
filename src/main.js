@@ -2,7 +2,6 @@ import { ensureDir } from "@std/fs"
 import { dirname } from "@std/path"
 
 import * as fs from "./fs.js"
-import * as config from "./config.js"
 import * as descriptor from "./descriptor.js"
 import process from "./processor.js"
 
@@ -21,5 +20,5 @@ export async function main(inputPath, outPath) {
 
   const entries = filePaths.map(p => descriptor.analyze(p, basePath))
 
-  await process(entries, basePath, outPath, await config.load(basePath))
+  await process(entries, basePath, outPath)
 }

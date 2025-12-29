@@ -1,7 +1,9 @@
 import { importModule } from "jsr:@brad-jones/jsr-dynamic-imports@^0.1.2"
-import { resolve } from "@std/path"
+import { load } from "./config.js"
+
 
 import * as fs from "./fs.js"
+import { dirname } from "node:path"
 
 function normalize(generatorOutput, entry) {
   if (entry.isNamedGenerator && typeof generatorOutput !== "string") {
@@ -17,14 +19,16 @@ function normalize(generatorOutput, entry) {
     : [{ path: `${entry.baseName}.${entry.outExt}`, content: generatorOutput }]
 }
 
-async function processEntry(entry, outPath, config = {}) {
-  const generate = (await importModule(resolve(entry.path))).default
+async function processEntry(entry, outPath) {
+  const generate = (await importModule(entry.path)).default
 
   if (typeof generate !== "function") {
     throw new Error(`Module ${entry.path} does not export a default function`)
   }
 
-  const generatorOutput = await generate({ config })
+  const config = await load(dirname(entry.path))
+  
+  const generatorOutput = await generate({config})
   const generatedFiles = normalize(generatorOutput, entry)
 
   await fs.write(generatedFiles, outPath, entry.relativeDirPath)
@@ -32,7 +36,7 @@ async function processEntry(entry, outPath, config = {}) {
   return generatedFiles
 }
 
-export default async function process(entries, basePath, outPath, config) {
+export default async function process(entries, basePath, outPath) {
   const visibleEntries = entries.filter(e => !e.isHidden && !e.isConfig)
 
   const namedGenerators = visibleEntries.filter(e => e.isNamedGenerator)
@@ -43,7 +47,7 @@ export default async function process(entries, basePath, outPath, config) {
 
   const safeProcess = async (entry) => {
     try {
-      await processEntry(entry, outPath, config)
+      await processEntry(entry, outPath)
     } catch (e) {
       console.debug({e})
       errors.push(new Error(`Error processing generator ${entry.path}: ${e.message || e}`))
