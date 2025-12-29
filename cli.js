@@ -20,6 +20,7 @@ Usage: genalia <module|directory> [options]
 
 Options:
   --out <outputDir>    Specify output directory (default: ./dist)
+  --ignore <patterns>  Ignore files or directories matching glob patterns (comma separated, default: **/.*)
   --version            Show version information
   --help               Show this help message
 `)
@@ -28,9 +29,9 @@ Options:
 if (import.meta.main) {
   try {
     const args = parseArgs(Deno.args, {
-      string: ["out"],
+      string: ["out", "ignore"],
       boolean: ["version", "help"],
-      alias: { o: "out", v: "version", h: "help" },
+      alias: { o: "out", V: "version", h: "help", i: "ignore"},
     })
 
     if (args.help) {
@@ -51,8 +52,11 @@ if (import.meta.main) {
 
     const inputPath = String(positionals[0])
     const outDir = args.out ?? "./dist"
+    const ignore = args.ignore ?? "**/.*"
 
-    await main(resolve(inputPath), resolve(outDir))
+    const options = { ignore }
+
+    await main(resolve(inputPath), resolve(outDir), options)
     Deno.exit(0)
   } catch (error) {
     console.error("Error:", error.message)

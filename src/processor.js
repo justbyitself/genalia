@@ -27,7 +27,7 @@ async function processEntry(entry, outPath) {
   }
 
   const config = await load(dirname(entry.path))
-  
+
   const generatorOutput = await generate({config})
   const generatedFiles = normalize(generatorOutput, entry)
 
@@ -37,7 +37,7 @@ async function processEntry(entry, outPath) {
 }
 
 export default async function process(entries, basePath, outPath) {
-  const visibleEntries = entries.filter(e => !e.isHidden && !e.isConfig)
+  const visibleEntries = entries.filter(e => !e.isIgnored && !e.isConfig)
 
   const namedGenerators = visibleEntries.filter(e => e.isNamedGenerator)
   const normalGenerators = visibleEntries.filter(e => e.isNormalGenerator)
